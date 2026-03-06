@@ -249,7 +249,7 @@ async def _send_channel_message_async(
     msg_id: Optional[str] = None,
     use_markdown: bool = False,
 ) -> None:
-    body = (
+    body: Dict[str, Any] = (
         {"markdown": {"content": content}}
         if use_markdown
         else {"content": content}
@@ -531,16 +531,19 @@ class QQChannel(BaseChannel):
                 return
             if not _should_plaintext_fallback_from_markdown(exc):
                 logger.exception(
-                    "send failed with markdown; skip fallback to avoid duplicates",
+                    "send failed with markdown; "
+                    "skip fallback to avoid duplicates",
                 )
                 return
             logger.exception(
-                "send failed with markdown payload validation; fallback to plain text",
+                "send failed with markdown payload validation; "
+                "fallback to plain text",
             )
             fallback_text, had_url = _sanitize_qq_text(text)
             if had_url:
                 logger.info(
-                    "qq send fallback: stripped URL content for API compatibility",
+                    "qq send fallback: stripped URL content "
+                    "for API compatibility",
                 )
             try:
                 await _dispatch(fallback_text, False)
