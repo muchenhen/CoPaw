@@ -508,8 +508,15 @@ class CoPawAgent(ReActAgent):
             tool_choice=tool_choice,
             has_tools=bool(self.toolkit.get_json_schemas()),
         )
+        logger.info(
+            "react_agent reasoning start: tool_choice=%s tools=%s",
+            tool_choice,
+            bool(self.toolkit.get_json_schemas()),
+        )
 
-        return await super()._reasoning(tool_choice=tool_choice)
+        result = await super()._reasoning(tool_choice=tool_choice)
+        logger.info("react_agent reasoning done")
+        return result
 
     async def reply(
         self,
@@ -529,6 +536,10 @@ class CoPawAgent(ReActAgent):
         if msg is not None:
             sanitize_invalid_local_media_blocks_in_message(msg)
             await process_file_and_media_blocks_in_message(msg)
+        logger.info(
+            "react_agent reply start: msg_type=%s",
+            type(msg).__name__ if msg is not None else "None",
+        )
 
         # Check if message is a system command
         if isinstance(msg, list) and not msg:
@@ -555,7 +566,12 @@ class CoPawAgent(ReActAgent):
             return msg
 
         # Normal message processing
-        return await super().reply(msg=msg, structured_model=structured_model)
+        result = await super().reply(
+            msg=msg,
+            structured_model=structured_model,
+        )
+        logger.info("react_agent reply done")
+        return result
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
         """Interrupt the current reply process and wait for cleanup."""

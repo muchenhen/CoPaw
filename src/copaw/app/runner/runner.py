@@ -170,7 +170,16 @@ class AgentRunner(Runner):
                 max_iters=max_iters,
                 max_input_length=max_input_length,
             )
+            logger.info(
+                "query_handler agent created: session_id=%s user_id=%s",
+                session_id,
+                user_id,
+            )
             await agent.register_mcp_clients()
+            logger.info(
+                "query_handler mcp registration done: session_id=%s",
+                session_id,
+            )
             agent.set_console_output_enabled(enabled=False)
 
             logger.debug(
@@ -206,13 +215,25 @@ class AgentRunner(Runner):
                     e,
                 )
             session_state_loaded = True
+            logger.info(
+                "query_handler session state loaded: session_id=%s",
+                session_id,
+            )
 
             agent.sanitize_memory_media_blocks()
+            logger.info(
+                "query_handler memory media sanitized: session_id=%s",
+                session_id,
+            )
 
             # Rebuild system prompt so it always reflects the latest
             # AGENTS.md / SOUL.md / PROFILE.md, not the stale one saved
             # in the session state.
             agent.rebuild_sys_prompt()
+            logger.info(
+                "query_handler entering agent stream: session_id=%s",
+                session_id,
+            )
 
             async for msg, last in stream_printing_messages(
                 agents=[agent],
