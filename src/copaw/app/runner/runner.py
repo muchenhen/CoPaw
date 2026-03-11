@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from agentscope.pipeline import stream_printing_messages
+from agentscope.message import Msg, TextBlock
 from agentscope_runtime.engine.runner import Runner
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from dotenv import load_dotenv
@@ -68,6 +69,25 @@ class AgentRunner(Runner):
             logger.info("Command path: %s", query.strip()[:50])
             async for msg, last in run_command_path(request, msgs, self):
                 yield msg, last
+            return
+
+        if not msgs:
+            logger.warning(
+                "query_handler called with empty msgs: "
+                "session_id=%s user_id=%s",
+                getattr(request, "session_id", "") if request else "",
+                getattr(request, "user_id", "") if request else "",
+            )
+            yield Msg(
+                name="Friday",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text="No input message was provided.",
+                    ),
+                ],
+            ), True
             return
 
         agent = None

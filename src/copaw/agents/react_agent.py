@@ -12,7 +12,7 @@ from typing import Any, List, Literal, Optional, Type
 from agentscope.agent import ReActAgent
 from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
 from agentscope.memory import InMemoryMemory
-from agentscope.message import Msg, TextBlock
+from agentscope.message import Msg
 from agentscope.tool import Toolkit
 from anyio import ClosedResourceError
 from pydantic import BaseModel
@@ -522,18 +522,6 @@ class CoPawAgent(ReActAgent):
             await process_file_and_media_blocks_in_message(msg)
 
         # Check if message is a system command
-        if isinstance(msg, list) and not msg:
-            logger.warning("reply called with empty message list")
-            return Msg(
-                name=self.name,
-                role="assistant",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text="No input message was provided.",
-                    ),
-                ],
-            )
         last_msg = msg[-1] if isinstance(msg, list) else msg
         query = (
             last_msg.get_text_content() if isinstance(last_msg, Msg) else None
