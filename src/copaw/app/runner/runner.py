@@ -7,6 +7,9 @@ from pathlib import Path
 
 from agentscope.pipeline import stream_printing_messages
 from agentscope.message import Msg, TextBlock
+from agentscope_runtime.adapters.agentscope.message import (
+    message_to_agentscope_msg,
+)
 from agentscope_runtime.engine.runner import Runner
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from dotenv import load_dotenv
@@ -70,6 +73,37 @@ class AgentRunner(Runner):
             async for msg, last in run_command_path(request, msgs, self):
                 yield msg, last
             return
+
+        if (
+            not msgs
+            and request is not None
+            and getattr(request, "input", None)
+        ):
+            try:
+                rebuilt_msgs = message_to_agentscope_msg(
+                    request.input,
+                    type_converters=self.in_type_converters,
+                )
+                if rebuilt_msgs:
+                    msgs = (
+                        rebuilt_msgs
+                        if isinstance(rebuilt_msgs, list)
+                        else [rebuilt_msgs]
+                    )
+                    logger.warning(
+                        "query_handler rebuilt empty msgs from request: "
+                        "session_id=%s user_id=%s msgs_len=%s",
+                        getattr(request, "session_id", ""),
+                        getattr(request, "user_id", ""),
+                        len(msgs),
+                    )
+            except Exception:
+                logger.exception(
+                    "query_handler failed to rebuild msgs from request: "
+                    "session_id=%s user_id=%s",
+                    getattr(request, "session_id", ""),
+                    getattr(request, "user_id", ""),
+                )
 
         if not msgs:
             logger.warning(
