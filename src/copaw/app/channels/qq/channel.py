@@ -830,17 +830,34 @@ class QQChannel(BaseChannel):
             media_parts = self._parse_qq_attachments(attachments)
             content_parts = list(content_parts) + media_parts
         session_id = self.resolve_session_id(sender_id, meta)
-        return self.build_agent_request_from_user_content(
+        request = self.build_agent_request_from_user_content(
             channel_id=channel_id,
             sender_id=sender_id,
             session_id=session_id,
             content_parts=content_parts,
             channel_meta=meta,
         )
+        request.channel_meta = meta
+        return request
 
     async def consume_one(self, payload: Any) -> None:
         """Process one AgentRequest from manager queue."""
-        request = payload
+        if isinstance(payload, dict) and "content_parts" in payload:
+            session_id = self.resolve_session_id(
+                payload.get("sender_id") or "",
+                payload.get("meta"),
+            )
+            content_parts = payload.get("content_parts") or []
+            should_process, merged = self._apply_no_text_debounce(
+                session_id,
+                content_parts,
+            )
+            if not should_process:
+                return
+            payload = {**payload, "content_parts": merged}
+            request = self.build_agent_request_from_native(payload)
+        else:
+            request = payload
         if getattr(request, "input", None):
             session_id = getattr(request, "session_id", "") or ""
             contents = list(
@@ -1156,12 +1173,8 @@ class QQChannel(BaseChannel):
                                 ],
                                 "meta": meta,
                             }
-                            request = self.build_agent_request_from_native(
-                                native,
-                            )
-                            request.channel_meta = meta
                             if self._enqueue is not None:
-                                self._enqueue(request)
+                                self._enqueue(native)
                             logger.info(
                                 "qq recv c2c from=%s text=%r",
                                 sender,
@@ -1208,12 +1221,8 @@ class QQChannel(BaseChannel):
                                 ],
                                 "meta": meta,
                             }
-                            request = self.build_agent_request_from_native(
-                                native,
-                            )
-                            request.channel_meta = meta
                             if self._enqueue is not None:
-                                self._enqueue(request)
+                                self._enqueue(native)
                             logger.info(
                                 "qq recv guild from=%s channel=%s text=%r",
                                 sender,
@@ -1260,12 +1269,8 @@ class QQChannel(BaseChannel):
                                 ],
                                 "meta": meta,
                             }
-                            request = self.build_agent_request_from_native(
-                                native,
-                            )
-                            request.channel_meta = meta
                             if self._enqueue is not None:
-                                self._enqueue(request)
+                                self._enqueue(native)
                             logger.info(
                                 "qq recv dm from=%s text=%r",
                                 sender,
@@ -1309,12 +1314,8 @@ class QQChannel(BaseChannel):
                                 ],
                                 "meta": meta,
                             }
-                            request = self.build_agent_request_from_native(
-                                native,
-                            )
-                            request.channel_meta = meta
                             if self._enqueue is not None:
-                                self._enqueue(request)
+                                self._enqueue(native)
                             logger.info(
                                 "qq recv group from=%s group=%s text=%r",
                                 sender,

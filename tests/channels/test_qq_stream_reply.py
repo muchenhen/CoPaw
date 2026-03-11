@@ -23,6 +23,21 @@ def _make_request() -> SimpleNamespace:
     )
 
 
+def _make_native_payload() -> dict:
+    return {
+        "channel_id": "qq",
+        "sender_id": "user-1",
+        "content_parts": [
+            TextContent(type=ContentType.TEXT, text="帮我检查一下"),
+        ],
+        "meta": {
+            "message_id": "msg-1",
+            "message_type": "c2c",
+            "sender_id": "user-1",
+        },
+    }
+
+
 def _make_events() -> list[SimpleNamespace]:
     return [
         SimpleNamespace(
@@ -128,4 +143,45 @@ async def test_qq_non_stream_reply_keeps_accumulated_single_message() -> None:
             "好的，让我检查一下今天早上的定时任务执行情况",
             "今天早上的 3 个定时任务都成功执行",
         ],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_qq_native_payload_is_built_during_consume() -> None:
+    seen = {}
+    sent: list[list[str]] = []
+
+    async def process(request):
+        seen["input_len"] = len(request.input)
+        seen["content_text"] = request.input[0].content[0].text
+        for event in _make_events():
+            yield event
+
+    channel = QQChannel(
+        process=process,
+        enabled=True,
+        app_id="app-id",
+        client_secret="secret",
+        stream_reply=True,
+        processing_ack_enabled=False,
+    )
+    channel._message_to_content_parts = lambda event: [
+        TextContent(type=ContentType.TEXT, text=event.text),
+    ]
+
+    async def fake_send_content_parts(to_handle, parts, _meta=None):
+        assert to_handle == "user-1"
+        sent.append([getattr(part, "text", "") for part in parts])
+
+    channel.send_content_parts = fake_send_content_parts
+
+    await channel.consume_one(_make_native_payload())
+
+    assert seen == {
+        "input_len": 1,
+        "content_text": "帮我检查一下",
+    }
+    assert sent == [
+        ["好的，让我检查一下今天早上的定时任务执行情况"],
+        ["今天早上的 3 个定时任务都成功执行"],
     ]
