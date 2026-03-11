@@ -104,6 +104,13 @@ def _as_bool(value: Any) -> bool:
     return bool(value)
 
 
+def _preview_text(text: str, limit: int = 120) -> str:
+    preview = (text or "").replace("\n", "\\n")
+    if len(preview) > limit:
+        return preview[:limit] + "..."
+    return preview
+
+
 def _should_plaintext_fallback_from_markdown(exc: Exception) -> bool:
     """Only fallback for explicit markdown payload validation failures."""
     if not isinstance(exc, QQApiError):
@@ -230,7 +237,7 @@ async def _send_c2c_message_async(
     content: str,
     msg_id: Optional[str] = None,
     use_markdown: bool = False,
-) -> None:
+) -> Dict[str, Any]:
     msg_seq = _get_next_msg_seq(msg_id or "c2c")
     if use_markdown:
         body = {
@@ -242,7 +249,7 @@ async def _send_c2c_message_async(
     body["msg_seq"] = msg_seq
     if msg_id:
         body["msg_id"] = msg_id
-    await _api_request_async(
+    return await _api_request_async(
         session,
         access_token,
         "POST",
@@ -258,7 +265,7 @@ async def _send_channel_message_async(
     content: str,
     msg_id: Optional[str] = None,
     use_markdown: bool = False,
-) -> None:
+) -> Dict[str, Any]:
     body: Dict[str, Any] = (
         {"markdown": {"content": content}}
         if use_markdown
@@ -266,7 +273,7 @@ async def _send_channel_message_async(
     )
     if msg_id:
         body["msg_id"] = msg_id
-    await _api_request_async(
+    return await _api_request_async(
         session,
         access_token,
         "POST",
@@ -282,7 +289,7 @@ async def _send_group_message_async(
     content: str,
     msg_id: Optional[str] = None,
     use_markdown: bool = False,
-) -> None:
+) -> Dict[str, Any]:
     msg_seq = _get_next_msg_seq(msg_id or "group")
     if use_markdown:
         body = {
@@ -294,7 +301,7 @@ async def _send_group_message_async(
     body["msg_seq"] = msg_seq
     if msg_id:
         body["msg_id"] = msg_id
-    await _api_request_async(
+    return await _api_request_async(
         session,
         access_token,
         "POST",
@@ -354,6 +361,8 @@ class QQChannel(BaseChannel):
         bot_prefix: str = "",
         markdown_enabled: bool = True,
         stream_reply: bool = True,
+        processing_ack_enabled: bool = True,
+        processing_ack_text: str = "收到，正在处理，请稍候。",
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
@@ -373,6 +382,8 @@ class QQChannel(BaseChannel):
         self.bot_prefix = bot_prefix
         self._markdown_enabled = markdown_enabled
         self._stream_reply = stream_reply
+        self._processing_ack_enabled = processing_ack_enabled
+        self._processing_ack_text = processing_ack_text
         self._media_dir = (
             Path(media_dir).expanduser() if media_dir else _DEFAULT_MEDIA_DIR
         )
@@ -472,6 +483,13 @@ class QQChannel(BaseChannel):
             bot_prefix=os.getenv("QQ_BOT_PREFIX", ""),
             markdown_enabled=_as_bool(os.getenv("QQ_MARKDOWN_ENABLED", "1")),
             stream_reply=_as_bool(os.getenv("QQ_STREAM_REPLY", "1")),
+            processing_ack_enabled=_as_bool(
+                os.getenv("QQ_PROCESSING_ACK_ENABLED", "1"),
+            ),
+            processing_ack_text=os.getenv(
+                "QQ_PROCESSING_ACK_TEXT",
+                "收到，正在处理，请稍候。",
+            ),
             on_reply_sent=on_reply_sent,
         )
 
@@ -493,6 +511,16 @@ class QQChannel(BaseChannel):
             bot_prefix=config.bot_prefix or "",
             markdown_enabled=getattr(config, "markdown_enabled", True),
             stream_reply=getattr(config, "stream_reply", True),
+            processing_ack_enabled=getattr(
+                config,
+                "processing_ack_enabled",
+                True,
+            ),
+            processing_ack_text=getattr(
+                config,
+                "processing_ack_text",
+                "收到，正在处理，请稍候。",
+            ),
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -542,9 +570,21 @@ class QQChannel(BaseChannel):
             logger.exception("get access_token failed")
             return
 
-        async def _dispatch(send_text: str, markdown: bool) -> None:
+        target_to = group_openid or channel_id or sender_id or to_handle
+
+        logger.info(
+            "qq send attempt: type=%s to=%s msg_id=%s markdown=%s "
+            "preview=%r",
+            message_type,
+            target_to,
+            msg_id,
+            use_markdown,
+            _preview_text(text),
+        )
+
+        async def _dispatch(send_text: str, markdown: bool) -> Dict[str, Any]:
             if message_type == "c2c":
-                await _send_c2c_message_async(
+                return await _send_c2c_message_async(
                     self._http,
                     token,
                     sender_id,
@@ -552,8 +592,8 @@ class QQChannel(BaseChannel):
                     msg_id,
                     use_markdown=markdown,
                 )
-            elif message_type == "group" and group_openid:
-                await _send_group_message_async(
+            if message_type == "group" and group_openid:
+                return await _send_group_message_async(
                     self._http,
                     token,
                     group_openid,
@@ -561,8 +601,8 @@ class QQChannel(BaseChannel):
                     msg_id,
                     use_markdown=markdown,
                 )
-            elif channel_id:
-                await _send_channel_message_async(
+            if channel_id:
+                return await _send_channel_message_async(
                     self._http,
                     token,
                     channel_id,
@@ -570,42 +610,81 @@ class QQChannel(BaseChannel):
                     msg_id,
                     use_markdown=markdown,
                 )
-            else:
-                await _send_c2c_message_async(
-                    self._http,
-                    token,
-                    sender_id,
-                    send_text,
-                    msg_id,
-                    use_markdown=markdown,
-                )
+            return await _send_c2c_message_async(
+                self._http,
+                token,
+                sender_id,
+                send_text,
+                msg_id,
+                use_markdown=markdown,
+            )
 
         try:
-            await _dispatch(text, use_markdown)
+            result = await _dispatch(text, use_markdown)
+            response_preview = json.dumps(result, ensure_ascii=False)[:500]
+            logger.info(
+                "qq send success: type=%s to=%s msg_id=%s response=%s",
+                message_type,
+                target_to,
+                msg_id,
+                response_preview,
+            )
         except Exception as exc:
             if not use_markdown:
-                logger.exception("send failed")
+                logger.exception(
+                    "qq send failed: type=%s to=%s msg_id=%s preview=%r",
+                    message_type,
+                    target_to,
+                    msg_id,
+                    _preview_text(text),
+                )
                 return
             if not _should_plaintext_fallback_from_markdown(exc):
                 logger.exception(
-                    "send failed with markdown; "
-                    "skip fallback to avoid duplicates",
+                    "send failed with markdown; skip fallback: "
+                    "type=%s to=%s msg_id=%s preview=%r",
+                    message_type,
+                    target_to,
+                    msg_id,
+                    _preview_text(text),
                 )
                 return
             logger.exception(
-                "send failed with markdown payload validation; "
-                "fallback to plain text",
+                "send failed with markdown validation; fallback: "
+                "type=%s to=%s msg_id=%s preview=%r",
+                message_type,
+                target_to,
+                msg_id,
+                _preview_text(text),
             )
             fallback_text, had_url = _sanitize_qq_text(text)
             if had_url:
                 logger.info(
-                    "qq send fallback: stripped URL content "
-                    "for API compatibility",
+                    "qq send fallback: stripped URL content",
                 )
             try:
-                await _dispatch(fallback_text, False)
+                result = await _dispatch(fallback_text, False)
+                response_preview = json.dumps(
+                    result,
+                    ensure_ascii=False,
+                )[:500]
+                logger.info(
+                    "qq send fallback success: type=%s to=%s "
+                    "msg_id=%s response=%s",
+                    message_type,
+                    target_to,
+                    msg_id,
+                    response_preview,
+                )
             except Exception:
-                logger.exception("send failed")
+                logger.exception(
+                    "qq send fallback failed: type=%s to=%s "
+                    "msg_id=%s preview=%r",
+                    message_type,
+                    target_to,
+                    msg_id,
+                    _preview_text(fallback_text),
+                )
 
     def _resolve_attachment_type(self, att_type: str, file_name: str) -> str:
         # pylint: disable=too-many-return-statements
@@ -788,6 +867,31 @@ class QQChannel(BaseChannel):
             accumulated_parts: List[OutgoingContentPart] = []
             sent_reply = False
             event_count = 0
+            should_send_ack = bool(
+                self._processing_ack_enabled
+                and self._processing_ack_text.strip()
+                and send_meta.get("message_id")
+                and not send_meta.get("skip_processing_ack"),
+            )
+            if should_send_ack:
+                ack_meta = dict(send_meta)
+                await self.send_content_parts(
+                    to_handle,
+                    [
+                        TextContent(
+                            type=ContentType.TEXT,
+                            text=self._processing_ack_text,
+                        ),
+                    ],
+                    ack_meta,
+                )
+                sent_reply = True
+                logger.info(
+                    "qq processing ack sent: to=%s msg_id=%s preview=%r",
+                    to_handle,
+                    send_meta.get("message_id"),
+                    _preview_text(self._processing_ack_text),
+                )
 
             async for event in self._process(request):
                 event_count += 1
@@ -835,16 +939,17 @@ class QQChannel(BaseChannel):
                     err_meta,
                 )
             elif accumulated_parts:
+                final_meta = dict(send_meta)
+                if sent_reply:
+                    final_meta["bot_prefix"] = ""
                 await self.send_content_parts(
                     to_handle,
                     accumulated_parts,
-                    send_meta,
+                    final_meta,
                 )
                 sent_reply = True
-            elif last_response is None:
+            elif last_response is None and not sent_reply:
                 fallback_meta = dict(send_meta)
-                if sent_reply:
-                    fallback_meta["bot_prefix"] = ""
                 await self.send_content_parts(
                     to_handle,
                     [

@@ -19,7 +19,7 @@ def _make_request() -> SimpleNamespace:
         input=None,
         user_id="user-1",
         session_id="qq:user-1",
-        channel_meta={},
+        channel_meta={"message_id": "msg-1"},
     )
 
 
@@ -45,6 +45,8 @@ def _make_channel(
     events: list[SimpleNamespace],
     *,
     stream_reply: bool,
+    processing_ack_enabled: bool = False,
+    processing_ack_text: str = "收到，正在处理，请稍候。",
 ) -> QQChannel:
     async def process(_request):
         for event in events:
@@ -56,6 +58,8 @@ def _make_channel(
         app_id="app-id",
         client_secret="secret",
         stream_reply=stream_reply,
+        processing_ack_enabled=processing_ack_enabled,
+        processing_ack_text=processing_ack_text,
     )
     channel._message_to_content_parts = lambda event: [
         TextContent(type=ContentType.TEXT, text=event.text),
@@ -77,6 +81,30 @@ async def test_qq_stream_reply_sends_messages_separately() -> None:
     await channel.consume_one(_make_request())
 
     assert sent == [
+        ["好的，让我检查一下今天早上的定时任务执行情况"],
+        ["今天早上的 3 个定时任务都成功执行"],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_qq_processing_ack_is_sent_before_stream_messages() -> None:
+    sent: list[list[str]] = []
+    channel = _make_channel(
+        _make_events(),
+        stream_reply=True,
+        processing_ack_enabled=True,
+    )
+
+    async def fake_send_content_parts(to_handle, parts, _meta=None):
+        assert to_handle == "user-1"
+        sent.append([getattr(part, "text", "") for part in parts])
+
+    channel.send_content_parts = fake_send_content_parts
+
+    await channel.consume_one(_make_request())
+
+    assert sent == [
+        ["收到，正在处理，请稍候。"],
         ["好的，让我检查一下今天早上的定时任务执行情况"],
         ["今天早上的 3 个定时任务都成功执行"],
     ]

@@ -62,6 +62,8 @@ class QQConfig(BaseChannelConfig):
     client_secret: str = ""
     markdown_enabled: bool = True
     stream_reply: bool = True
+    processing_ack_enabled: bool = True
+    processing_ack_text: str = "收到，正在处理，请稍候。"
 
 
 class TelegramConfig(BaseChannelConfig):
