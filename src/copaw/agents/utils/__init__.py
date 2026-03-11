@@ -21,6 +21,7 @@ from .message_processing import (
     is_first_user_interaction,
     prepend_to_message_content,
     process_file_and_media_blocks_in_message,
+    sanitize_invalid_local_media_blocks_in_message,
 )
 
 # Setup utilities
@@ -50,6 +51,7 @@ __all__ = [
     "download_file_from_url",
     # Message processing
     "process_file_and_media_blocks_in_message",
+    "sanitize_invalid_local_media_blocks_in_message",
     "is_first_user_interaction",
     "prepend_to_message_content",
     # Setup utilities

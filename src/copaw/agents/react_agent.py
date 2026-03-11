@@ -37,7 +37,10 @@ from .tools import (
     write_file,
     create_memory_search_tool,
 )
-from .utils import process_file_and_media_blocks_in_message
+from .utils import (
+    process_file_and_media_blocks_in_message,
+    sanitize_invalid_local_media_blocks_in_message,
+)
 from ..agents.memory import MemoryManager
 from ..config import load_config
 from ..constant import (
@@ -315,6 +318,11 @@ class CoPawAgent(ReActAgent):
                 msg.content = self.sys_prompt
             break
 
+    def sanitize_memory_media_blocks(self) -> None:
+        """Remove invalid local media references from loaded memory."""
+        for msg, _marks in self.memory.content:
+            sanitize_invalid_local_media_blocks_in_message(msg)
+
     async def register_mcp_clients(
         self,
         namesake_strategy: NamesakeStrategy = "skip",
@@ -519,6 +527,7 @@ class CoPawAgent(ReActAgent):
         """
         # Process file and media blocks in messages
         if msg is not None:
+            sanitize_invalid_local_media_blocks_in_message(msg)
             await process_file_and_media_blocks_in_message(msg)
 
         # Check if message is a system command

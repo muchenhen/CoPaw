@@ -207,6 +207,8 @@ class AgentRunner(Runner):
                 )
             session_state_loaded = True
 
+            agent.sanitize_memory_media_blocks()
+
             # Rebuild system prompt so it always reflects the latest
             # AGENTS.md / SOUL.md / PROFILE.md, not the stale one saved
             # in the session state.

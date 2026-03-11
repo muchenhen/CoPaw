@@ -135,13 +135,13 @@ def _update_block_with_local_path(
         if block_type == "audio":
             block["source"] = {
                 "type": "url",
-                "url": Path(local_path).as_uri(),
+                "url": local_path,
                 "media_type": _media_type_from_path(local_path),
             }
         else:
             block["source"] = {
                 "type": "url",
-                "url": Path(local_path).as_uri(),
+                "url": local_path,
             }
     return block
 
@@ -176,6 +176,16 @@ async def _process_single_block(
     source, filename = _extract_source_and_filename(block, block_type)
     if source is None:
         return None
+
+    if isinstance(source, dict) and source.get("type") == "url":
+        url = source.get("url")
+        if isinstance(url, str) and _is_allowed_media_path(url):
+            logger.debug(
+                "Using existing local %s block path: %s",
+                block_type,
+                url,
+            )
+            return url
 
     # Normalize: when source is "base64" but data is a local path (e.g.
     # DingTalk voice returns path), treat as url only if under allowed dir.
@@ -226,6 +236,78 @@ async def _process_single_block(
                 "text": f"[Error: Failed to download file - {e}]",
             }
         return None
+
+
+def _extract_local_media_path(  # pylint: disable=too-many-return-statements
+    block: dict,
+) -> Optional[str]:
+    """Return a local filesystem path referenced by a media block."""
+    block_type = block.get("type")
+    if block_type == "file":
+        source = block.get("source")
+        if isinstance(source, str):
+            parsed = urllib.parse.urlparse(source)
+            if parsed.scheme == "file":
+                return urllib.request.url2pathname(parsed.path) or None
+            if parsed.scheme in ("http", "https", "data"):
+                return None
+            return source
+        if isinstance(source, dict) and source.get("type") == "url":
+            source = source.get("url", "")
+        else:
+            return None
+    else:
+        source = block.get("source", {})
+        if not isinstance(source, dict) or source.get("type") != "url":
+            return None
+        source = source.get("url", "")
+
+    if not isinstance(source, str) or not source:
+        return None
+
+    parsed = urllib.parse.urlparse(source)
+    if parsed.scheme == "file":
+        return urllib.request.url2pathname(parsed.path) or None
+    if parsed.scheme in ("http", "https", "data"):
+        return None
+    return source
+
+
+def sanitize_invalid_local_media_blocks_in_message(msg) -> None:
+    """Replace missing local media/file blocks with short text markers."""
+    messages = (
+        [msg] if isinstance(msg, Msg) else msg if isinstance(msg, list) else []
+    )
+
+    for message in messages:
+        if not isinstance(message, Msg):
+            continue
+        if not isinstance(message.content, list):
+            continue
+
+        for i, block in enumerate(message.content):
+            if not isinstance(block, dict):
+                continue
+            block_type = block.get("type")
+            if block_type not in ["file", "image", "audio", "video"]:
+                continue
+
+            local_path = _extract_local_media_path(block)
+            if not local_path:
+                continue
+            if os.path.exists(local_path):
+                continue
+
+            logger.warning(
+                "Dropping missing local %s block: %s",
+                block_type,
+                local_path,
+            )
+            missing_name = os.path.basename(local_path)
+            message.content[i] = {
+                "type": "text",
+                "text": f"[Missing {block_type}: {missing_name}]",
+            }
 
 
 async def process_file_and_media_blocks_in_message(msg) -> None:
