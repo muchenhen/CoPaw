@@ -880,6 +880,14 @@ class QQChannel(BaseChannel):
             send_meta = getattr(request, "channel_meta", None) or {}
             send_meta.setdefault("bot_prefix", self.bot_prefix)
             to_handle = request.user_id or ""
+            logger.info(
+                "qq request prepared: user=%s input_len=%s content_len=%s",
+                to_handle,
+                len(getattr(request, "input", None) or []),
+                len(getattr(request.input[0], "content", None) or [])
+                if getattr(request, "input", None)
+                else 0,
+            )
             last_response = None
             accumulated_parts: List[OutgoingContentPart] = []
             sent_reply = False
@@ -1001,6 +1009,10 @@ class QQChannel(BaseChannel):
                 )
             except Exception:
                 logger.exception("send error message failed")
+
+    async def _consume_one_request(self, payload: Any) -> None:
+        """Route native queue payloads through QQ's custom consume path."""
+        await self.consume_one(payload)
 
     def _run_ws_forever(self) -> None:
         try:
