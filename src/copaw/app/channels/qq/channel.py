@@ -122,6 +122,19 @@ def _should_plaintext_fallback_from_markdown(exc: Exception) -> bool:
     )
 
 
+def _is_progress_event(event: Any) -> bool:
+    """Return whether a runtime message event is tagged as progress."""
+    metadata = getattr(event, "metadata", None) or {}
+    if not isinstance(metadata, dict):
+        return False
+
+    nested_metadata = metadata.get("metadata")
+    if isinstance(nested_metadata, dict):
+        return bool(nested_metadata.get("_progress"))
+
+    return bool(metadata.get("_progress"))
+
+
 def _get_api_base() -> str:
     """API root address (e.g. sandbox: https://sandbox.api.sgroup.qq.com)"""
     return os.getenv("QQ_API_BASE", DEFAULT_API_BASE).rstrip("/")
@@ -354,6 +367,7 @@ class QQChannel(BaseChannel):
         bot_prefix: str = "",
         markdown_enabled: bool = True,
         stream_reply: bool = True,
+        send_progress: bool = True,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
@@ -373,6 +387,7 @@ class QQChannel(BaseChannel):
         self.bot_prefix = bot_prefix
         self._markdown_enabled = markdown_enabled
         self._stream_reply = stream_reply
+        self._send_progress = send_progress
         self._media_dir = (
             Path(media_dir).expanduser() if media_dir else _DEFAULT_MEDIA_DIR
         )
@@ -472,6 +487,7 @@ class QQChannel(BaseChannel):
             bot_prefix=os.getenv("QQ_BOT_PREFIX", ""),
             markdown_enabled=_as_bool(os.getenv("QQ_MARKDOWN_ENABLED", "1")),
             stream_reply=_as_bool(os.getenv("QQ_STREAM_REPLY", "1")),
+            send_progress=_as_bool(os.getenv("QQ_SEND_PROGRESS", "1")),
             on_reply_sent=on_reply_sent,
         )
 
@@ -493,6 +509,7 @@ class QQChannel(BaseChannel):
             bot_prefix=config.bot_prefix or "",
             markdown_enabled=getattr(config, "markdown_enabled", True),
             stream_reply=getattr(config, "stream_reply", True),
+            send_progress=getattr(config, "send_progress", True),
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -802,6 +819,9 @@ class QQChannel(BaseChannel):
                     ev_type,
                 )
                 if obj == "message" and status == RunStatus.Completed:
+                    if _is_progress_event(event) and not self._send_progress:
+                        logger.info("qq skip progress message: send_progress=0")
+                        continue
                     parts = self._message_to_content_parts(event)
                     logger.info(
                         "qq completed message: type=%s parts_count=%s",
