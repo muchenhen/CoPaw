@@ -996,7 +996,7 @@ class QQChannel(BaseChannel):
 
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
-                err_text = self.bot_prefix + f"Error: {err_msg}"
+                err_text = f"Error: {err_msg}"
                 err_meta = dict(send_meta)
                 if sent_reply:
                     err_meta["bot_prefix"] = ""
@@ -1015,17 +1015,19 @@ class QQChannel(BaseChannel):
                     final_meta,
                 )
             elif last_response is None:
+                fallback_meta = dict(send_meta)
+                if sent_reply:
+                    fallback_meta["bot_prefix"] = ""
                 await self.send_content_parts(
                     to_handle,
                     [
                         TextContent(
                             type=ContentType.TEXT,
-                            text=self.bot_prefix
-                            + "An error occurred while processing your "
+                            text="An error occurred while processing your "
                             "request.",
                         ),
                     ],
-                    send_meta,
+                    fallback_meta,
                 )
             if self._on_reply_sent:
                 self._on_reply_sent(
